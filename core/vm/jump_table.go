@@ -1036,3 +1036,14 @@ func newFrontierInstructionSet() JumpTable {
 		SELFDESTRUCT: nil,
 	}
 }
+
+func copyJumpTable(source *JumpTable) *JumpTable {
+	dest := *source
+	for i, op := range source {
+		if op != nil {
+			opCopy := *op
+			dest[i] = &opCopy
+		}
+	}
+	return &dest
+}

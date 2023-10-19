@@ -82,6 +82,7 @@ type StructLogRes struct {
 	Error         string            `json:"error,omitempty"`
 	Stack         []string          `json:"stack,omitempty"`
 	Memory        []string          `json:"memory,omitempty"`
+	Meq           *int              `json:"meq,omitempty"`
 	Storage       map[string]string `json:"storage,omitempty"`
 	RefundCounter uint64            `json:"refund,omitempty"`
 	ExtraData     *ExtraData        `json:"extraData,omitempty"`

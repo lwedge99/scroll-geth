@@ -143,6 +143,9 @@ type EVMLogger interface {
 	CaptureExit(output []byte, gasUsed uint64, err error)
 	CaptureFault(pc uint64, op OpCode, gas, cost uint64, scope *ScopeContext, depth int, err error)
 	CaptureEnd(output []byte, gasUsed uint64, t time.Duration, err error)
+
+	CaptureTxStart(gasLimit uint64)
+	CaptureTxEnd(restGas uint64)
 }
 
 // StructLogger is an EVM state logger and implements EVMLogger.
@@ -381,6 +384,12 @@ func (l *StructLogger) CaptureExit(output []byte, gasUsed uint64, err error) {
 		return
 	}
 
+}
+
+func (l *StructLogger) CaptureTxStart(gasLimit uint64) {
+}
+
+func (l *StructLogger) CaptureTxEnd(restGas uint64) {
 }
 
 // UpdatedAccounts is used to collect all "touched" accounts

@@ -831,6 +831,12 @@ func (jst *jsTracer) CaptureExit(output []byte, gasUsed uint64, err error) {
 	}
 }
 
+func (jst *jsTracer) CaptureTxStart(gasLimit uint64) {
+}
+
+func (jst *jsTracer) CaptureTxEnd(restGas uint64) {
+}
+
 // GetResult calls the Javascript 'result' function and returns its value, or any accumulated error
 func (jst *jsTracer) GetResult() (json.RawMessage, error) {
 	// Transform the context into a JavaScript object and inject into the state

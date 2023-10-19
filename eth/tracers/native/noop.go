@@ -27,7 +27,7 @@ import (
 )
 
 func init() {
-	register("noopTracerNative", newNoopTracer)
+	tracers.DefaultDirectory.Register("noopTracerNative", newNoopTracer, false)
 }
 
 // noopTracer is a go implementation of the Tracer interface which
@@ -35,8 +35,8 @@ func init() {
 type noopTracer struct{}
 
 // newNoopTracer returns a new noop tracer.
-func newNoopTracer() tracers.Tracer {
-	return &noopTracer{}
+func newNoopTracer(_ *tracers.Context, _ json.RawMessage) (tracers.Tracer, error) {
+	return &noopTracer{}, nil
 }
 
 // CaptureStart implements the EVMLogger interface to initialize the tracing operation.

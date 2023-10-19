@@ -26,12 +26,20 @@ import (
 	"time"
 
 	"github.com/scroll-tech/go-ethereum/common"
+	"github.com/scroll-tech/go-ethereum/common/hexutil"
 	"github.com/scroll-tech/go-ethereum/core/vm"
 	"github.com/scroll-tech/go-ethereum/eth/tracers"
+	"github.com/scroll-tech/go-ethereum/log"
 )
 
 func init() {
-	register("callTracer", newCallTracer)
+	tracers.DefaultDirectory.Register("callTracer", newCallTracer, false)
+}
+
+type callLog struct {
+	Address common.Address `json:"address"`
+	Topics  []common.Hash  `json:"topics"`
+	Data    hexutil.Bytes  `json:"data"`
 }
 
 type callFrame struct {
@@ -45,22 +53,35 @@ type callFrame struct {
 	Output  string      `json:"output,omitempty"`
 	Error   string      `json:"error,omitempty"`
 	Calls   []callFrame `json:"calls,omitempty"`
+	Logs    []callLog   `json:"logs,omitempty"`
 }
 
 type callTracer struct {
 	env       *vm.EVM
 	callstack []callFrame
+	config    callTracerConfig
 	interrupt uint32 // Atomic flag to signal execution interruption
 	reason    error  // Textual reason for the interruption
 }
 
+type callTracerConfig struct {
+	OnlyTopCall bool `json:"onlyTopCall"` // If true, call tracer won't collect any subcalls
+	WithLog     bool `json:"withLog"`     // If true, call tracer will collect event logs
+}
+
 // newCallTracer returns a native go tracer which tracks
 // call frames of a tx, and implements vm.EVMLogger.
-func newCallTracer() tracers.Tracer {
+func newCallTracer(ctx *tracers.Context, cfg json.RawMessage) (tracers.Tracer, error) {
 	// First callframe contains tx context info
 	// and is populated on start and end.
-	t := &callTracer{callstack: make([]callFrame, 1)}
-	return t
+	var config callTracerConfig
+	if cfg != nil {
+		if err := json.Unmarshal(cfg, &config); err != nil {
+			return nil, err
+		}
+	}
+	t := &callTracer{callstack: make([]callFrame, 1), config: config}
+	return t, nil
 }
 
 // CaptureStart implements the EVMLogger interface to initialize the tracing operation.
@@ -94,6 +115,45 @@ func (t *callTracer) CaptureEnd(output []byte, gasUsed uint64, _ time.Duration, 
 
 // CaptureState implements the EVMLogger interface to trace a single step of VM execution.
 func (t *callTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, depth int, err error) {
+	// skip if the previous op caused an error
+	if err != nil {
+		return
+	}
+	// Only logs need to be captured via opcode processing
+	if !t.config.WithLog {
+		return
+	}
+	// Skip if tracing was interrupted
+	if atomic.LoadUint32(&t.interrupt) > 0 {
+		t.env.Cancel()
+		return
+	}
+	switch op {
+	case vm.LOG0, vm.LOG1, vm.LOG2, vm.LOG3, vm.LOG4:
+		size := int(op - vm.LOG0)
+
+		stack := scope.Stack
+		stackData := stack.Data()
+
+		// Don't modify the stack
+		mStart := stackData[len(stackData)-1]
+		mSize := stackData[len(stackData)-2]
+		topics := make([]common.Hash, size)
+		for i := 0; i < size; i++ {
+			topic := stackData[len(stackData)-2-(i+1)]
+			topics[i] = common.Hash(topic.Bytes32())
+		}
+
+		data, err := tracers.GetMemoryCopyPadded(scope.Memory, int64(mStart.Uint64()), int64(mSize.Uint64()))
+		if err != nil {
+			// mSize was unrealistically large
+			log.Warn("failed to copy CREATE2 input", "err", err, "tracer", "callTracer", "offset", mStart, "size", mSize)
+			return
+		}
+
+		log := callLog{Address: scope.Contract.Address(), Topics: topics, Data: hexutil.Bytes(data)}
+		t.callstack[len(t.callstack)-1].Logs = append(t.callstack[len(t.callstack)-1].Logs, log)
+	}
 }
 
 // CaptureStateAfter for special needs, tracks SSTORE ops and records the storage change.
@@ -164,10 +224,6 @@ func (t *callTracer) GetResult() (json.RawMessage, error) {
 func (t *callTracer) Stop(err error) {
 	t.reason = err
 	atomic.StoreUint32(&t.interrupt, 1)
-}
-
-func bytesToHex(s []byte) string {
-	return "0x" + common.Bytes2Hex(s)
 }
 
 func bigToHex(n *big.Int) string {

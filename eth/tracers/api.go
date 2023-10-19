@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -172,16 +173,16 @@ type TraceConfig struct {
 	Tracer  *string
 	Timeout *string
 	Reexec  *uint64
+
+	TracerConfig json.RawMessage
 }
 
 // TraceCallConfig is the config for traceCall API. It holds one more
 // field to override the state for tracing.
 type TraceCallConfig struct {
-	*vm.LogConfig
-	Tracer         *string
-	Timeout        *string
-	Reexec         *uint64
+	TraceConfig
 	StateOverrides *ethapi.StateOverride
+	BlockOverrides *ethapi.BlockOverrides
 }
 
 // StdTraceConfig holds extra parameters to standard-json trace functions.
@@ -870,17 +871,18 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 		return nil, err
 	}
 	// Apply the customized state rules if required.
+	vmctx := core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), api.backend.ChainConfig(), nil)
 	if config != nil {
 		if err := config.StateOverrides.Apply(statedb); err != nil {
 			return nil, err
 		}
+		config.BlockOverrides.Apply(&vmctx)
 	}
 	// Execute the trace
 	msg, err := args.ToMessage(api.backend.RPCGasCap(), block.BaseFee())
 	if err != nil {
 		return nil, err
 	}
-	vmctx := core.NewEVMBlockContext(block.Header(), api.chainContext(ctx), api.backend.ChainConfig(), nil)
 
 	var traceConfig *TraceConfig
 	if config != nil {
@@ -922,7 +924,7 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 				return nil, err
 			}
 		}
-		if t, err := New(*config.Tracer, txctx); err != nil {
+		if t, err := DefaultDirectory.New(*config.Tracer, txctx, config.TracerConfig); err != nil {
 			return nil, err
 		} else {
 			deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -995,4 +997,106 @@ func APIs(backend Backend) []rpc.API {
 			Public:    true,
 		},
 	}
+}
+
+type Bundle struct {
+	Transactions  []*ethapi.TransactionArgs `json:"transactions"`
+	BlockOverride ethapi.BlockOverrides     `json:"blockOverride"`
+}
+
+type StateContext struct {
+	BlockNumber      *rpc.BlockNumberOrHash `json:"blockNumber"`
+	TransactionIndex int                    `json:"transactionIndex"`
+}
+
+func (api *API) TraceCallMany(ctx context.Context, bundles []*Bundle, simulateContext *StateContext, config *TraceCallConfig) (interface{}, error) {
+	if len(bundles) == 0 {
+		return nil, errors.New("empty bundles")
+	}
+	var result []interface{}
+	for _, bundle := range bundles {
+		r, err := api.traceBundle(ctx, bundle, simulateContext, config)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, nil
+}
+
+func (api *API) traceBundle(ctx context.Context, bundle *Bundle, simulateContext *StateContext, config *TraceCallConfig) (interface{}, error) {
+	var result []interface{}
+	// Try to retrieve the specified block
+	var (
+		err   error
+		block *types.Block
+	)
+	if hash, ok := simulateContext.BlockNumber.Hash(); ok {
+		block, err = api.blockByHash(ctx, hash)
+	} else if number, ok := simulateContext.BlockNumber.Number(); ok {
+		if number == rpc.PendingBlockNumber {
+			// We don't have access to the miner here. For tracing 'future' transactions,
+			// it can be done with block- and state-overrides instead, which offers
+			// more flexibility and stability than trying to trace on 'pending', since
+			// the contents of 'pending' is unstable and probably not a true representation
+			// of what the next actual block is likely to contain.
+			return nil, errors.New("tracing on top of pending is not supported")
+		}
+		block, err = api.blockByNumber(ctx, number)
+	} else {
+		return nil, errors.New("invalid arguments; neither block nor hash specified")
+	}
+	if err != nil {
+		return nil, err
+	}
+	// try to recompute the state
+	reexec := defaultTraceReexec
+	if config != nil && config.Reexec != nil {
+		reexec = *config.Reexec
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	_, vmctx, statedb, err := api.backend.StateAtTransaction(ctx, block, simulateContext.TransactionIndex, reexec)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply the customization rules if required.
+	if config != nil {
+		if err := config.StateOverrides.Apply(statedb); err != nil {
+			return nil, err
+		}
+		config.BlockOverrides.Apply(&vmctx)
+	}
+	// Execute the trace
+	signer := types.MakeSigner(api.backend.ChainConfig(), block.Number())
+	for idx, args := range bundle.Transactions {
+		if idx > 0 {
+			// TODO currently only support one tx in bundle
+			break
+		}
+		msg, err := args.ToMessage(api.backend.RPCGasCap(), block.BaseFee())
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO is this correct?
+		l1DataFee, err := fees.EstimateL1DataFeeForMessage(msg, block.BaseFee(), api.backend.ChainConfig().ChainID, signer, statedb)
+		if err != nil {
+			return nil, err
+		}
+
+		var traceConfig *TraceConfig
+		if config != nil {
+			traceConfig = &config.TraceConfig
+		}
+		r, err := api.traceTx(ctx, msg, new(Context), vmctx, statedb, traceConfig, l1DataFee)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, nil
 }

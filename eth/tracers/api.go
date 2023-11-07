@@ -175,13 +175,18 @@ type TraceConfig struct {
 	Reexec  *uint64
 
 	TracerConfig json.RawMessage
+
+	StateOverrides        *ethapi.StateOverride
+	IgnoreGas             *bool
+	IgnoreCodeSizeLimit   *bool
+	CreationCodeOverrides map[common.Address]hexutil.Bytes
+	CreateAddressOverride *common.Address
 }
 
 // TraceCallConfig is the config for traceCall API. It holds one more
 // field to override the state for tracing.
 type TraceCallConfig struct {
 	TraceConfig
-	StateOverrides *ethapi.StateOverride
 	BlockOverrides *ethapi.BlockOverrides
 }
 
@@ -829,6 +834,12 @@ func (api *API) TraceTransaction(ctx context.Context, hash common.Hash, config *
 	if err != nil {
 		return nil, err
 	}
+
+	if config != nil {
+		if err := config.StateOverrides.Apply(statedb); err != nil {
+			return nil, err
+		}
+	}
 	txctx := &Context{
 		BlockHash: blockHash,
 		TxIndex:   int(index),
@@ -941,7 +952,22 @@ func (api *API) traceTx(ctx context.Context, message core.Message, txctx *Contex
 		tracer = vm.NewStructLogger(config.LogConfig)
 	}
 	// Run the transaction with tracing enabled.
-	vmenv := vm.NewEVM(vmctx, txContext, statedb, api.backend.ChainConfig(), vm.Config{Debug: true, Tracer: tracer, NoBaseFee: true})
+	vmConfig := vm.Config{
+		Debug:     true,
+		Tracer:    tracer,
+		NoBaseFee: true,
+	}
+	if config != nil {
+		vmConfig.CreateAddressOverride = config.CreateAddressOverride
+		vmConfig.CreationCodeOverrides = config.CreationCodeOverrides
+		if config.IgnoreCodeSizeLimit != nil {
+			vmConfig.IgnoreCodeSizeLimit = *config.IgnoreCodeSizeLimit
+		}
+		if config.IgnoreGas != nil {
+			vmConfig.IgnoreGas = *config.IgnoreGas
+		}
+	}
+	vmenv := vm.NewEVM(vmctx, txContext, statedb, api.backend.ChainConfig(), vmConfig)
 
 	// If gasPrice is 0, make sure that the account has sufficient balance to cover `l1DataFee`.
 	if message.GasPrice().Cmp(big.NewInt(0)) == 0 {

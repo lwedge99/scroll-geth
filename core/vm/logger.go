@@ -50,12 +50,13 @@ func (s Storage) Copy() Storage {
 
 // LogConfig are the configuration options for structured logger the EVM
 type LogConfig struct {
-	EnableMemory     bool // enable memory capture
-	DisableStack     bool // disable stack capture
-	DisableStorage   bool // disable storage capture
-	EnableReturnData bool // enable return data capture
-	Debug            bool // print output during capture end
-	Limit            int  // maximum length of output, but zero means unlimited
+	EnableMemory            bool // enable memory capture
+	DisableStack            bool // disable stack capture
+	DisableStorage          bool // disable storage capture
+	EnableReturnData        bool // enable return data capture
+	Debug                   bool // print output during capture end
+	Limit                   int  // maximum length of output, but zero means unlimited
+	MemoryCompressionWindow int
 	// Chain overrides, can be used to execute a trace using future fork rules
 	Overrides *params.ChainConfig `json:"overrides,omitempty"`
 }
@@ -70,6 +71,7 @@ type StructLog struct {
 	Gas           uint64                      `json:"gas"`
 	GasCost       uint64                      `json:"gasCost"`
 	Memory        bytes.Buffer                `json:"memory"`
+	Meq           *int                        `json:"meq,omitempty"`
 	MemorySize    int                         `json:"memSize"`
 	Stack         []uint256.Int               `json:"stack"`
 	ReturnData    bytes.Buffer                `json:"returnData"`
@@ -165,6 +167,10 @@ type StructLogger struct {
 	logs            []*StructLog
 	output          []byte
 	err             error
+
+	prevMem       [][]byte
+	prevMemWindow int
+	prevMemIdx    int
 }
 
 // NewStructLogger returns a new logger
@@ -175,6 +181,9 @@ func NewStructLogger(cfg *LogConfig) *StructLogger {
 	}
 	if cfg != nil {
 		logger.cfg = *cfg
+		logger.prevMemWindow = cfg.MemoryCompressionWindow
+		logger.prevMemIdx = 0
+		logger.prevMem = make([][]byte, cfg.MemoryCompressionWindow)
 	}
 
 	return logger
@@ -225,8 +234,35 @@ func (l *StructLogger) CaptureState(pc uint64, op OpCode, gas, cost uint64, scop
 	}
 	// Copy a snapshot of the current memory state to a new buffer
 	if l.cfg.EnableMemory {
-		structLog.Memory.Write(memory.Data())
+		mem := memory.Data()
 		structLog.MemorySize = memory.Len()
+
+		foundEq := false
+		if l.prevMemWindow > 0 {
+			i := l.prevMemIdx
+			for dist := 1; dist <= l.prevMemWindow; dist++ {
+				if i--; i < 0 {
+					i = l.prevMemWindow - 1
+				}
+				if len(l.prevMem[i]) == len(mem) && bytes.Equal(l.prevMem[i], mem) {
+					foundEq = true
+					structLog.Meq = &dist
+					break
+				}
+			}
+			if l.prevMemIdx++; l.prevMemIdx == l.prevMemWindow {
+				l.prevMemIdx = 0
+			}
+			if foundEq {
+				l.prevMem[l.prevMemIdx] = l.prevMem[i]
+			} else {
+				l.prevMem[l.prevMemIdx] = make([]byte, len(mem))
+				copy(l.prevMem[l.prevMemIdx], mem)
+			}
+		}
+		if !foundEq {
+			structLog.Memory.Write(mem)
+		}
 	}
 	// Copy a snapshot of the current stack state to a new buffer
 	if !l.cfg.DisableStack {

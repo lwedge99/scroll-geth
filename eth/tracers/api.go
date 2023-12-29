@@ -1080,6 +1080,7 @@ func (api *API) traceBundle(ctx context.Context, bundle *Bundle, simulateContext
 	if config != nil && config.Reexec != nil {
 		reexec = *config.Reexec
 	}
+	is158 := api.backend.ChainConfig().IsEIP158(block.Number())
 
 	if err != nil {
 		return nil, err
@@ -1099,10 +1100,6 @@ func (api *API) traceBundle(ctx context.Context, bundle *Bundle, simulateContext
 	// Execute the trace
 	signer := types.MakeSigner(api.backend.ChainConfig(), block.Number())
 	for idx, args := range bundle.Transactions {
-		if idx > 0 {
-			// TODO currently only support one tx in bundle
-			break
-		}
 		if args.Gas == nil {
 			gasCap := api.backend.RPCGasCap()
 			args.Gas = (*hexutil.Uint64)(&gasCap)
@@ -1122,11 +1119,19 @@ func (api *API) traceBundle(ctx context.Context, bundle *Bundle, simulateContext
 		if config != nil {
 			traceConfig = &config.TraceConfig
 		}
-		r, err := api.traceTx(ctx, msg, new(Context), vmctx, statedb, traceConfig, l1DataFee)
+		txctx := &Context{
+			BlockHash:   block.Hash(),
+			BlockNumber: block.Number(),
+			TxIndex:     simulateContext.TransactionIndex + idx,
+		}
+		r, err := api.traceTx(ctx, msg, txctx, vmctx, statedb, traceConfig)
+		r, err := api.traceTx(ctx, msg, txctx, vmctx, statedb, traceConfig, l1DataFee)
+
 		if err != nil {
 			return nil, err
 		}
 		result = append(result, r)
+		statedb.Finalise(is158)
 	}
 	return result, nil
 }

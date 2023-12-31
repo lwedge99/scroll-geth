@@ -1130,11 +1130,10 @@ func (api *API) traceBundle(ctx context.Context, bundle *Bundle, simulateContext
 			traceConfig = &config.TraceConfig
 		}
 		txctx := &Context{
-			BlockHash:   block.Hash(),
-			BlockNumber: block.Number(),
-			TxIndex:     simulateContext.TransactionIndex + idx,
+			BlockHash: block.Hash(),
+			//BlockNumber: block.Number(),
+			TxIndex: simulateContext.TransactionIndex + idx,
 		}
-		r, err := api.traceTx(ctx, msg, txctx, vmctx, statedb, traceConfig)
 		r, err := api.traceTx(ctx, msg, txctx, vmctx, statedb, traceConfig, l1DataFee)
 
 		if err != nil {

@@ -132,6 +132,7 @@ var (
 		utils.MinerRecommitIntervalFlag,
 		utils.MinerNoVerifyFlag,
 		utils.MinerStoreSkippedTxTracesFlag,
+		utils.MinerMaxAccountsNumFlag,
 		utils.NATFlag,
 		utils.NoDiscoverFlag,
 		utils.DiscoveryV5Flag,
@@ -159,6 +160,8 @@ var (
 		utils.GpoPercentileFlag,
 		utils.GpoMaxGasPriceFlag,
 		utils.GpoIgnoreGasPriceFlag,
+		utils.GpoCongestionThresholdFlag,
+
 		utils.MinerNotifyFullFlag,
 		configFileFlag,
 		utils.CatalystFlag,

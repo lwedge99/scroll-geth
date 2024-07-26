@@ -351,6 +351,12 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
 
 	// Check clauses 1-3, buy gas if everything is correct
+
+	transitionDbStart := time.Now()
+	if st.evm.Config.DebugEthCall {
+		defer common.LogTime("transitionDb", transitionDbStart, 100)
+	}
+
 	if err := st.preCheck(); err != nil {
 		return nil, err
 	}
@@ -406,6 +412,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		st.state.SetNonce(msg.From(), st.state.GetNonce(sender.Address())+1)
 		evmCallStart := time.Now()
 		ret, st.gas, vmerr = st.evm.Call(sender, st.to(), st.data, st.gas, st.value)
+		if st.evm.Config.DebugEthCall {
+			common.LogTime("evmCall", evmCallStart, 100)
+		}
 		stateTransitionEvmCallExecutionTimer.Update(time.Since(evmCallStart))
 	}
 

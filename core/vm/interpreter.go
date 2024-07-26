@@ -42,6 +42,8 @@ type Config struct {
 	CreateAddressOverride *common.Address
 	IgnoreGas             bool
 	IgnoreCodeSizeLimit   bool
+
+	DebugEthCall bool
 }
 
 // ScopeContext contains the things that are per-call, such as stack and memory,

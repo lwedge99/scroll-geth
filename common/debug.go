@@ -22,6 +22,8 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Report gives off a warning requesting the user to submit an issue to the github tracker.
@@ -49,4 +51,18 @@ func PrintDeprecationWarning(str string) {
 %s
 
 `, line, emptyLine, str, emptyLine, line)
+}
+
+var costs = map[string]int64{}
+var times = map[string]int64{}
+var mu sync.Mutex
+
+func LogTime(name string, startTime time.Time, logInterval int) {
+	mu.Lock()
+	defer mu.Unlock()
+	costs[name] += time.Since(startTime).Milliseconds()
+	times[name] += 1
+	if times[name]%int64(logInterval) == 0 {
+		fmt.Printf("!!! [%s] avg cost: %d ms, total cost: %d ms, times: %d\n", name, costs[name]/times[name], costs[name], times[name])
+	}
 }

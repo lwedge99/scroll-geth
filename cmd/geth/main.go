@@ -170,6 +170,7 @@ var (
 		utils.L1DeploymentBlockFlag,
 		utils.CircuitCapacityCheckEnabledFlag,
 		utils.RollupVerifyEnabledFlag,
+		utils.ShadowforkPeersFlag,
 	}
 
 	rpcFlags = []cli.Flag{

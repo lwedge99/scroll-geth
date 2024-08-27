@@ -33,8 +33,7 @@ import (
 //go:generate go run github.com/fjl/gencodec -type flatCallResult -field-override flatCallResultMarshaling -out gen_flatcallresult_json.go
 
 func init() {
-	// tracers.DefaultDirectory.Register("flatCallTracer", newFlatCallTracer, false)
-	register("flatCallTracer", newFlatCallTracer)
+	tracers.DefaultDirectory.Register("flatCallTracer", newFlatCallTracer, false)
 }
 
 var parityErrorMapping = map[string]string{
@@ -114,10 +113,10 @@ type flatCallTracer struct {
 }
 
 // newFlatCallTracer returns a new flatCallTracer.
-func newFlatCallTracer(ctx *tracers.Context) tracers.Tracer {
+func newFlatCallTracer(ctx *tracers.Context, cfg json.RawMessage) (tracers.Tracer, error) {
 	t := &callTracer{callstack: make([]callFrame, 1)}
 
-	return &flatCallTracer{callTracer: t, ctx: ctx}
+	return &flatCallTracer{callTracer: t, ctx: ctx}, nil
 
 }
 

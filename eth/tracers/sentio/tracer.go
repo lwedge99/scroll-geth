@@ -166,7 +166,7 @@ func (t *sentioTracer) CaptureStart(env *vm.EVM, from common.Address, to common.
 		t.receipt.TransactionIndex = uint(ibs.TxIndex())
 	}
 
-	rules := env.ChainConfig().Rules(env.Context.BlockNumber)
+	rules := env.ChainConfig().Rules(env.Context.BlockNumber, env.Context.Time.Uint64())
 	t.activePrecompiles = vm.ActivePrecompiles(rules)
 
 	root := Trace{

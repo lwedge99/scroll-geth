@@ -909,23 +909,13 @@ func (api *API) TraceCall(ctx context.Context, args ethapi.TransactionArgs, bloc
 		return nil, err
 	}
 
-	var traceConfig *TraceConfig
-	if config != nil {
-		traceConfig = &TraceConfig{
-			LogConfig: config.LogConfig,
-			Tracer:    config.Tracer,
-			Timeout:   config.Timeout,
-			Reexec:    config.Reexec,
-		}
-	}
-
 	signer := types.MakeSigner(api.backend.ChainConfig(), block.Number())
 	l1DataFee, err := fees.EstimateL1DataFeeForMessage(msg, block.BaseFee(), api.backend.ChainConfig(), signer, statedb, block.Number())
 	if err != nil {
 		return nil, err
 	}
 
-	return api.traceTx(ctx, msg, new(Context), vmctx, statedb, traceConfig, l1DataFee)
+	return api.traceTx(ctx, msg, new(Context), vmctx, statedb, &config.TraceConfig, l1DataFee)
 }
 
 // traceTx configures a new tracer according to the provided configuration, and
